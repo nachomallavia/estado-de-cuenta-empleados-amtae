@@ -764,6 +764,19 @@
                     }
                 }
             );
+            Handlebars.registerHelper(
+                'isRealReentry',
+                function (fechaAlta, fechaAsociado, fechaBaja) {
+                    // Solo es reingreso si hay fecha de baja y la fecha de asociado es diferente a la fecha de alta
+                    if (!fechaAsociado || !fechaBaja) {
+                        return false;
+                    }
+                    // Comparar fechas (convertir a timestamp para comparación)
+                    const alta = new Date(fechaAlta).getTime();
+                    const asociado = new Date(fechaAsociado).getTime();
+                    return alta !== asociado;
+                }
+            );
         </script>
         <script>
             async function fetchData(id) {
@@ -813,14 +826,8 @@
                 document.getElementById(containerId).innerHTML = rendered;
             }
             function filterCanceledLoans(data) {
-                let loans = data.creditosAdministrados;
-                let filteredLoans = [];
-                if (loans) {
-                    filteredLoans = loans.filter((loan) => {
-                        return loan.Estado != 'Cancelado' && loan.Estado != 'Anulado';
-                    });
-                }
-                data.creditosAdministrados = filteredLoans;
+                // Versión AMTAE: No filtramos créditos cancelados o anulados
+                // Los empleados de AMTAE necesitan ver todos los créditos
                 return data;
             }
 
@@ -875,6 +882,12 @@
 
             /**
              * Filtra serviciosRepositorio basado en el estado de los adherentes.
+             * Normaliza nombres en ambos estados (resumido y ampliado).
+             * 
+             * VERSIÓN AMTAE (Empleados):
+             * - Estado resumido: Aplica lógica de exclusión (bajas > 6 meses sin mora)
+             * - Estado ampliado: NO filtra adherentes, muestra TODA la información disponible
+             *   (mantiene diferentes periodos de adhesión de una misma persona por separado)
              * 
              * Lógica de exclusión (solo para estado resumido):
              * - Excluye adherentes que cumplan TODOS estos criterios:
@@ -883,11 +896,9 @@
              *   3. NO tienen mora (Saldo > 0 en serviciosRepositorio)
              *   4. La baja fue hace más de 6 meses
              * 
-             * Para estado ampliado, no aplica ningún filtro de adherentes.
-             * 
              * @param {Object} data - Datos del socio con servicios y serviciosRepositorio
              * @param {Boolean} isResumed - True para estado resumido, false para ampliado
-             * @returns {Object} - Data con serviciosRepositorio filtrado
+             * @returns {Object} - Data con serviciosRepositorio filtrado y nombres normalizados
              */
             function filterCanceledServices(data, isResumed = true) {
                 let services = data.serviciosRepositorio;
@@ -895,12 +906,6 @@
                 
                 // Si no hay servicios para filtrar, retornar data tal cual
                 if (!services || services.length === 0) {
-                    return data;
-                }
-                
-                // Si es estado ampliado, no aplicar filtrado por adherentes
-                if (!isResumed) {
-                    data.serviciosRepositorio = services;
                     return data;
                 }
                 
@@ -920,55 +925,61 @@
                 });
                 
                 // 2. Analizar cada adherente para determinar su estado
+                // Versión AMTAE: Solo aplicar exclusión en estado resumido
                 const adherentesToExclude = new Set(); // Set de nombres de adherentes a excluir
-                const sixMonthsAgo = new Date();
-                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
                 
-                Object.keys(adherentesByDoc).forEach((nroDoc) => {
-                    const adherenteRecords = adherentesByDoc[nroDoc];
+                if (isResumed) {
+                    // Solo para estado resumido: aplicar lógica de exclusión
+                    const sixMonthsAgo = new Date();
+                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
                     
-                    // Separar registros con y sin baja
-                    const registrosConBaja = adherenteRecords.filter(a => a.Fecha_Fin != null);
-                    const registrosSinBaja = adherenteRecords.filter(a => a.Fecha_Fin == null);
-                    
-                    // Si hay registros activos (sin baja), el adherente está activo
-                    if (registrosSinBaja.length > 0) {
-                        return; // No excluir, está activo
-                    }
-                    
-                    // Si solo hay registros con baja, verificar reincorporación
-                    if (registrosConBaja.length > 0) {
-                        // Ordenar por fecha de baja (más reciente primero)
-                        registrosConBaja.sort((a, b) => new Date(b.Fecha_Fin) - new Date(a.Fecha_Fin));
-                        const ultimaBaja = registrosConBaja[0];
-                        const fechaBaja = new Date(ultimaBaja.Fecha_Fin);
+                    Object.keys(adherentesByDoc).forEach((nroDoc) => {
+                        const adherenteRecords = adherentesByDoc[nroDoc];
                         
-                        // Verificar si hay reincorporación (Fecha_Alta posterior a la última baja)
-                        const seReincorporo = adherenteRecords.some(a => 
-                            new Date(a.Fecha_Alta) > fechaBaja
-                        );
+                        // Separar registros con y sin baja
+                        const registrosConBaja = adherenteRecords.filter(a => a.Fecha_Fin != null);
+                        const registrosSinBaja = adherenteRecords.filter(a => a.Fecha_Fin == null);
                         
-                        if (seReincorporo) {
-                            return; // No excluir, se reincorporó
+                        // Si hay registros activos (sin baja), el adherente está activo
+                        if (registrosSinBaja.length > 0) {
+                            return; // No excluir, está activo
                         }
                         
-                        // Verificar si tiene mora en serviciosRepositorio
-                        const nombreAdherente = ultimaBaja.Nombre;
-                        const tieneMora = services.some(s => 
-                            (s.Adherente || '').trim() === nombreAdherente && s.Saldo > 0
-                        );
-                        
-                        if (tieneMora) {
-                            return; // No excluir, tiene mora
+                        // Si solo hay registros con baja, verificar reincorporación
+                        if (registrosConBaja.length > 0) {
+                            // Ordenar por fecha de baja (más reciente primero)
+                            registrosConBaja.sort((a, b) => new Date(b.Fecha_Fin) - new Date(a.Fecha_Fin));
+                            const ultimaBaja = registrosConBaja[0];
+                            const fechaBaja = new Date(ultimaBaja.Fecha_Fin);
+                            
+                            // Verificar si hay reincorporación (Fecha_Alta posterior a la última baja)
+                            const seReincorporo = adherenteRecords.some(a => 
+                                new Date(a.Fecha_Alta) > fechaBaja
+                            );
+                            
+                            if (seReincorporo) {
+                                return; // No excluir, se reincorporó
+                            }
+                            
+                            // Verificar si tiene mora en serviciosRepositorio
+                            const nombreAdherente = ultimaBaja.Nombre;
+                            const tieneMora = services.some(s => 
+                                (s.Adherente || '').trim() === nombreAdherente && s.Saldo > 0
+                            );
+                            
+                            if (tieneMora) {
+                                return; // No excluir, tiene mora
+                            }
+                            
+                            // Verificar si la baja fue hace más de 6 meses
+                            if (fechaBaja < sixMonthsAgo) {
+                                // Excluir este adherente
+                                adherentesToExclude.add(nombreAdherente);
+                            }
                         }
-                        
-                        // Verificar si la baja fue hace más de 6 meses
-                        if (fechaBaja < sixMonthsAgo) {
-                            // Excluir este adherente
-                            adherentesToExclude.add(nombreAdherente);
-                        }
-                    }
-                });
+                    });
+                }
+                // Para estado ampliado: adherentesToExclude queda vacío, no se excluye nada
                 
                 // 3. Filtrar serviciosRepositorio
                 // Eliminar duplicados exactos y excluir adherentes dados de baja según criterios
@@ -989,7 +1000,12 @@
                     
                     // Mantener el registro (incluso con Saldo = 0), eliminando solo duplicados exactos
                     if (!uniqueServices.has(key)) {
-                        uniqueServices.set(key, service);
+                        // Guardar el servicio con el nombre normalizado
+                        const normalizedService = {
+                            ...service,
+                            Adherente: adherenteName
+                        };
+                        uniqueServices.set(key, normalizedService);
                     }
                 });
                 
@@ -1110,8 +1126,9 @@
                                 socio.socio.Fecha_Alta}}{{/if}}
                             </td>
                             <td colspan="" class="box-data">
-                                {{#if socio.socio.Fecha_Asociado}} {{formatDate
-                                socio.socio.Fecha_Asociado}} {{/if}}
+                                {{#if (isRealReentry socio.socio.Fecha_Alta socio.socio.Fecha_Asociado socio.socio.Fecha_Baja)}}
+                                    {{formatDate socio.socio.Fecha_Asociado}}
+                                {{/if}}
                             </td>
                             <td colspan="" class="box-data">
                                 {{#if socio.socio.Fecha_Baja}} {{formatDate
@@ -1653,8 +1670,9 @@
                                 socio.socio.Fecha_Alta}}{{/if}}
                             </td>
                             <td colspan="" class="box-data">
-                                {{#if socio.socio.Fecha_Asociado}} {{formatDate
-                                socio.socio.Fecha_Asociado}} {{/if}}
+                                {{#if (isRealReentry socio.socio.Fecha_Alta socio.socio.Fecha_Asociado socio.socio.Fecha_Baja)}}
+                                    {{formatDate socio.socio.Fecha_Asociado}}
+                                {{/if}}
                             </td>
                             <td colspan="" class="box-data">
                                 {{#if socio.socio.Fecha_Baja}} {{formatDate
