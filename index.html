@@ -1029,7 +1029,8 @@
                         data = filterDates(data, !isAmpliado);
                         data = filterCanceledServices(data, !isAmpliado);
                         data = filterCanceledLoans(data);
-                        data = filterNextMonthDueDates(data);
+                        // Cliente pidió mostrar TODOS los vencimientos, incluyendo mes siguiente
+                        // data = filterNextMonthDueDates(data);
 
                         const templateId = isAmpliado
                             ? 'estado-de-cuenta-ampliado-template'
