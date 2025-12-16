@@ -698,35 +698,34 @@
 
             Handlebars.registerHelper(
                 'groupBy',
-                function (arr, selectedKey, secondKey) {
+                function (arr, selectedKey, secondKey, thirdKey) {
                     let sortStore = [];
                     let filteredCategories = [];
                     if (arr != undefined) {
                         for (let i = 0; i < arr.length; i++) {
                             let currentCategory = arr[i][selectedKey];
                             let currentSecondary = arr[i][secondKey];
+                            let currentTertiary = thirdKey ? arr[i][thirdKey] : '';
                             let lastCategory = '';
                             let lastSecondary = '';
+                            let lastTertiary = '';
                             if (i != 0) {
                                 lastCategory = arr[i - 1][selectedKey];
                                 lastSecondary = arr[i - 1][secondKey];
+                                lastTertiary = thirdKey ? arr[i - 1][thirdKey] : '';
                             }
+                            let currentGroupKey = currentCategory + currentSecondary + currentTertiary;
+                            let lastGroupKey = lastCategory + lastSecondary + lastTertiary;
                             if (
-                                currentCategory + currentSecondary !=
-                                    lastCategory + lastSecondary &&
-                                filteredCategories.indexOf(
-                                    currentCategory + currentSecondary
-                                ) === -1
+                                currentGroupKey != lastGroupKey &&
+                                filteredCategories.indexOf(currentGroupKey) === -1
                             ) {
-                                filteredCategories.push(
-                                    currentCategory + currentSecondary
-                                );
+                                filteredCategories.push(currentGroupKey);
                                 let filteredArray = arr.filter((element) => {
-                                    return (
-                                        element[selectedKey] ==
-                                            currentCategory &&
-                                        element[secondKey] == currentSecondary
-                                    );
+                                    let matchesPrimary = element[selectedKey] == currentCategory;
+                                    let matchesSecondary = element[secondKey] == currentSecondary;
+                                    let matchesTertiary = thirdKey ? element[thirdKey] == currentTertiary : true;
+                                    return matchesPrimary && matchesSecondary && matchesTertiary;
                                 });
                                 sortStore.push(filteredArray);
                             }
@@ -1200,7 +1199,7 @@
                                 </th>
                             </tr>
                         </thead>
-                        {{#each (groupBy serviciosRepositorio 'TipoCS' 'Adherente') as
+                        {{#each (groupBy serviciosRepositorio 'TipoCS' 'Adherente' 'TipoServicio') as
                         |category| }}
 
                         <tr class="no-sides">
@@ -1744,7 +1743,7 @@
                                 </th>
                             </tr>
                         </thead>
-                        {{#each (groupBy serviciosRepositorio 'TipoCS' 'Adherente') as
+                        {{#each (groupBy serviciosRepositorio 'TipoCS' 'Adherente' 'TipoServicio') as
                         |category| }}
 
                         <tr class="no-sides">
