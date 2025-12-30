@@ -766,8 +766,9 @@
             Handlebars.registerHelper(
                 'isRealReentry',
                 function (fechaAlta, fechaAsociado, fechaBaja) {
-                    // Solo es reingreso si hay fecha de baja y la fecha de asociado es diferente a la fecha de alta
-                    if (!fechaAsociado || !fechaBaja) {
+                    // Es reingreso si la fecha de asociado es diferente a la fecha de alta
+                    // (independientemente de si hay o no fecha de baja)
+                    if (!fechaAsociado || !fechaAlta) {
                         return false;
                     }
                     // Comparar fechas (convertir a timestamp para comparación)
